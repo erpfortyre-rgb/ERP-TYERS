@@ -1,0 +1,46 @@
+# Flutter / Dart
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.g.dart
+*.freezed.dart
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Secrets - kabhi commit mat karna
+.env
+*.keystore
+*.jks
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts / binaries
+*.exe
+*.md5
+
+# ---- Internal working files — NEVER push to client repo ----
+# AI context / working instructions
+CLAUDE.md
+CLAUDE-CONTEXT.md
+CLAUDE-*.md
+Folder-Structure.txt
+# Internal docs: prompts, work-logs, study reports, audits, client change notes, references, PDFs
+docs/
+**/docs/
+*.pdf
+*-audit.md
+*-AUDIT.md
+# Client reference material & research screenshots
+**/client-assets/
+**/screenshots/
+
+# Node (web_admin / website / backend)
+node_modules/
+dist/
+.next/

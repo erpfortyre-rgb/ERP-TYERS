@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
-import { ListCompanies, SearchProducts, SavePurchaseOrder } from '../../wailsjs/go/main/App'
+import { ListCompanies, ListPurchaseOrders, SearchProducts, SavePurchaseOrder, DeletePurchaseOrder } from '../../wailsjs/go/main/App'
 
 interface Company { id: string; name: string }
 interface ProductResult { id: string; name: string; hsnCode: string; taxPercent: number; prices: { tier: string; pricePaise: number }[] }
@@ -8,11 +8,14 @@ interface LineItem {
   productId: string; productName: string; gstPercent: number; hsnCode: string
   quantity: number; pricePaise: number; taxIncluded: boolean; amountPaise: number
 }
+interface PurchaseRecord { id: string; companyId: string; orderNumber: string; orderDate: string; status: string; totalPaise: number; notes: string }
 
 const today = () => new Date().toISOString().slice(0, 10)
 const fmt = (p: number) => p === 0 ? '0' : (p / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })
 
 export default function PurchaseInvoice() {
+  const [view, setView] = useState<'list' | 'form'>('list')
+  const [invoices, setInvoices] = useState<PurchaseRecord[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [selectedCompany, setSelectedCompany] = useState('')
   const [invoiceType, setInvoiceType] = useState<'CREDIT' | 'CASH'>('CREDIT')
@@ -26,9 +29,16 @@ export default function PurchaseInvoice() {
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<ProductResult[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editId, setEditId] = useState('')
+
+  const loadInvoices = () => {
+    ListPurchaseOrders('').then((r: any) => setInvoices(r || [])).catch(console.error)
+  }
 
   useEffect(() => {
     ListCompanies('').then(c => setCompanies(c || [])).catch(e => { console.error(e); toast.error('Failed to load companies') })
+    loadInvoices()
   }, [])
 
   useEffect(() => {
@@ -83,10 +93,11 @@ export default function PurchaseInvoice() {
   const handleSave = async () => {
     if (!selectedCompany) { toast.error('Select a company'); return }
     if (items.length === 0) { toast.error('Add at least one item'); return }
+    setSaving(true)
     try {
       await SavePurchaseOrder(
-        { id: '', companyId: selectedCompany, orderNumber: invoiceNumber, orderDate: invoiceDate, status: 'RECEIVED',
-          subtotalPaise: subtotal, taxPaise: totalGst, totalPaise: grandTotal, notes: remark } as any,
+        { id: editId, companyId: selectedCompany, orderNumber: invoiceNumber, orderDate: invoiceDate, status: 'RECEIVED',
+          subtotalPaise: grandTotal - totalGst, taxPaise: totalGst, totalPaise: grandTotal, notes: remark } as any,
         items.map(i => ({
           id: '', productId: i.productId, quantityMillis: i.quantity * 1000, unitPricePaise: i.pricePaise,
           taxPercent: i.gstPercent,
@@ -94,13 +105,69 @@ export default function PurchaseInvoice() {
         })) as any
       )
       toast.success('Purchase invoice saved')
-      setItems([])
-      setSelectedCompany('')
-      setInvoiceNumber('')
-      setRemark('')
-      setDiscountPercent(0)
-      setFreightPaise(0)
+      setItems([]); setSelectedCompany(''); setInvoiceNumber(''); setRemark(''); setDiscountPercent(0); setFreightPaise(0)
+      loadInvoices(); setView('list')
     } catch (e: any) { toast.error(e?.message || 'Save failed') }
+    setSaving(false)
+  }
+
+  const handleEditInvoice = (inv: PurchaseRecord) => {
+    setEditId(inv.id)
+    setSelectedCompany(inv.companyId)
+    setInvoiceNumber(inv.orderNumber)
+    setInvoiceDate(inv.orderDate?.slice(0, 10) || today())
+    setRemark(inv.notes)
+    setItems([])
+    setView('form')
+  }
+
+  const handleDeleteInvoice = async (id: string, num: string) => {
+    if (!window.confirm(`Delete invoice "${num || id}"? This cannot be undone.`)) return
+    try {
+      await DeletePurchaseOrder(id)
+      toast.success('Invoice deleted')
+      loadInvoices()
+    } catch (e: any) { toast.error(e?.message || 'Delete failed') }
+  }
+
+  if (view === 'list') {
+    const companyMap = Object.fromEntries(companies.map(c => [c.id, c.name]))
+    const statusColor = (s: string) => s === 'RECEIVED' ? 'var(--success)' : s === 'CANCELLED' ? 'var(--error)' : 'var(--accent)'
+    return (
+      <div className="page">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--fg-bright)' }}>Purchase Invoices</h2>
+          <button className="btn btn-primary" onClick={() => { setEditId(''); setView('form'); setItems([]); setSelectedCompany(''); setInvoiceNumber(''); setRemark(''); setDiscountPercent(0); setFreightPaise(0); setInvoiceDate(today()) }}>+ New Invoice</button>
+        </div>
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Invoice No.</th><th>Company</th><th>Date</th><th>Status</th><th style={{ textAlign: 'right' }}>Total</th><th>Notes</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--fg-muted)' }}>No purchase invoices yet. Click "+ New Invoice" to create one.</td></tr>
+              ) : invoices.map(inv => (
+                <tr key={inv.id}>
+                  <td style={{ fontWeight: 600 }}>{inv.orderNumber || '—'}</td>
+                  <td>{companyMap[inv.companyId] || '—'}</td>
+                  <td>{inv.orderDate?.slice(0, 10) || '—'}</td>
+                  <td><span style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.8rem', background: statusColor(inv.status), color: '#fff' }}>{inv.status}</span></td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--accent)' }}>₹{fmt(inv.totalPaise)}</td>
+                  <td style={{ color: 'var(--fg-muted)' }}>{inv.notes || '—'}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button onClick={() => handleEditInvoice(inv)} style={{ marginRight: 4, padding: '2px 8px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.8rem' }}>✏️ Edit</button>
+                    <button onClick={() => handleDeleteInvoice(inv.id, inv.orderNumber)} style={{ padding: '2px 8px', background: 'var(--error)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.8rem' }}>🗑 Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -109,7 +176,7 @@ export default function PurchaseInvoice() {
       <div style={{ background: 'var(--accent)', color: '#fff', padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 600, fontSize: '1rem' }}>Purchase Invoice</span>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-sm" style={{ background: 'var(--bg-card)', color: 'var(--fg)' }}>New</button>
+          <button className="btn btn-sm" style={{ background: 'var(--bg-card)', color: 'var(--fg)' }} onClick={() => setView('list')}>← Back to List</button>
         </div>
       </div>
 
@@ -301,10 +368,10 @@ export default function PurchaseInvoice() {
 
       {/* Action bar */}
       <div style={{ padding: '8px 20px 12px', display: 'flex', gap: 8, justifyContent: 'flex-end', borderTop: '1px solid var(--border)' }}>
-        <button className="btn btn-primary" onClick={handleSave} style={{ padding: '8px 24px' }}>Save</button>
-        <button className="btn" style={{ background: '#6c757d', color: '#fff', padding: '8px 16px' }}>Convert Type</button>
-        <button className="btn" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '8px 16px' }}>Print</button>
-        <button className="btn" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '8px 16px' }}>Close</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ padding: '8px 24px' }}>{saving ? 'Saving...' : 'Save'}</button>
+        <button className="btn" style={{ background: '#6c757d', color: '#fff', padding: '8px 16px' }} onClick={() => toast('Feature coming soon')}>Convert Type</button>
+        <button className="btn" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '8px 16px' }} onClick={() => toast('Print coming soon')}>Print</button>
+        <button className="btn" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '8px 16px' }} onClick={() => setView('list')}>Close</button>
       </div>
     </div>
   )

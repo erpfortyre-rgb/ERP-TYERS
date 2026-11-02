@@ -4,7 +4,8 @@ import toast from 'react-hot-toast'
 interface FieldDef {
   key: string
   label: string
-  type?: 'text' | 'number' | 'rupees'
+  type?: 'text' | 'number' | 'rupees' | 'select'
+  options?: { value: string; label: string }[]
   width?: number
   required?: boolean
   placeholder?: string
@@ -33,7 +34,8 @@ export default function SimpleMaster({ title, fields, listFn, saveFn, deleteFn, 
     setLoading(true)
     try {
       const list = await listFn(...listArgs)
-      setItems(list || [])
+      // Deleted masters are soft-deleted (is_active = 0): hide them from the list
+      setItems((list || []).filter((r: any) => r.isActive !== false))
     } catch (e: any) { console.error(e); toast.error(e?.message || `Failed to load ${title}`) }
     setLoading(false)
   }, [listFn, ...listArgs])
@@ -80,7 +82,9 @@ export default function SimpleMaster({ title, fields, listFn, saveFn, deleteFn, 
   const emptyItem = () => {
     const obj: any = { id: '', isActive: true }
     fields.forEach(f => {
-      obj[f.key] = f.type === 'number' || f.type === 'rupees' ? 0 : ''
+      if (f.type === 'number' || f.type === 'rupees') obj[f.key] = 0
+      else if (f.type === 'select') obj[f.key] = f.options?.[0]?.value || ''
+      else obj[f.key] = ''
     })
     return obj
   }
@@ -104,6 +108,9 @@ export default function SimpleMaster({ title, fields, listFn, saveFn, deleteFn, 
     if (field.type === 'rupees') {
       const val = (value || 0) / 100
       return `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+    if (field.type === 'select') {
+      return field.options?.find(o => o.value === value)?.label ?? value ?? ''
     }
     return value ?? ''
   }
@@ -157,7 +164,11 @@ export default function SimpleMaster({ title, fields, listFn, saveFn, deleteFn, 
 
       {editing && (
         <div className="modal-overlay" onClick={() => setEditing(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" onClick={e => e.stopPropagation()}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'F2') { e.preventDefault(); e.stopPropagation(); handleSave() }
+              else if (e.key === 'Escape') { e.stopPropagation(); setEditing(null) }
+            }}>
             <div className="modal-title">{editing.id ? `Edit ${title}` : `Create ${title}`}</div>
             {fields.map(f => (
               <div className="form-group" key={f.key}>
@@ -170,6 +181,11 @@ export default function SimpleMaster({ title, fields, listFn, saveFn, deleteFn, 
                   <input className="form-input" type="number"
                     value={editing[f.key] || 0}
                     onChange={e => setEditing({ ...editing, [f.key]: parseFloat(e.target.value || '0') })} />
+                ) : f.type === 'select' ? (
+                  <select className="form-input" value={editing[f.key] || f.options?.[0]?.value || ''}
+                    onChange={e => setEditing({ ...editing, [f.key]: e.target.value })}>
+                    {f.options?.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
                 ) : (
                   <input className="form-input" value={editing[f.key] || ''}
                     placeholder={f.placeholder}
