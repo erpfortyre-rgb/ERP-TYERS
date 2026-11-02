@@ -26,9 +26,6 @@ Thumbs.db
 
 # ---- Internal working files — NEVER push to client repo ----
 # AI context / working instructions
-CLAUDE.md
-CLAUDE-CONTEXT.md
-CLAUDE-*.md
 Folder-Structure.txt
 # Internal docs: prompts, work-logs, study reports, audits, client change notes, references, PDFs
 docs/
